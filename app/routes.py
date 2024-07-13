@@ -29,7 +29,7 @@ def login():
         return jsonify({'error': 'Invalid username or password'}), 401
 
 # Test de la connexion à la base de données
-@main_bp.route('/test_db_connection', methods=['GET'])
+"""@main_bp.route('/test_db_connection', methods=['GET'])
 def test_db_connection():
     try:
         conn = get_db_connection()
@@ -44,3 +44,4 @@ def test_db_connection():
             return jsonify({'message': 'Connection failed'}), 500
     except Exception as e:
         return jsonify({'message': 'Connection failed', 'error': str(e)}), 500
+"""
