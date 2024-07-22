@@ -28,20 +28,29 @@ def login():
     else:
         return jsonify({'error': 'Invalid username or password'}), 401
 
-# Test de la connexion à la base de données
-"""@main_bp.route('/test_db_connection', methods=['GET'])
-def test_db_connection():
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute('SELECT 1')
-        result = cur.fetchone()
-        cur.close()
-        conn.close()
-        if result:
-            return jsonify({'message': 'Connection successful', 'result': result}), 200
-        else:
-            return jsonify({'message': 'Connection failed'}), 500
-    except Exception as e:
-        return jsonify({'message': 'Connection failed', 'error': str(e)}), 500
-"""
+
+#voir tous les prompts
+@main_bp.route('/view_prompts', methods=['GET'])
+def view_prompts():
+    """
+    Route pour consulter les prompts.
+    Accessible à tous, sans authentification requise.
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, content, price FROM prompts")
+    prompts = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify(prompts), 200
+# voir un prompt specifique
+@main_bp.route('/prompts/<int:prompt_id>', methods=['GET'])
+def get_prompt(prompt_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, content, author_id, status, price FROM prompts WHERE id = %s", (prompt_id,))
+    prompt = cur.fetchone()
+    if prompt:
+        prompt_data = {'id': prompt[0], 'content': prompt[1], 'author_id': prompt[2], 'status': prompt[3], 'price': prompt[4]}
+        return jsonify(prompt_data), 200
+    return jsonify({'error': 'Prompt not found'}), 404

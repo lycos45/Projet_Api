@@ -1,9 +1,12 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.db import get_db_connection
+from app.utils import update_prompt_price,count_votes_and_update_status
 import psycopg2
 
 user_bp = Blueprint('user', __name__)
+
+# Route pour créer un prompt
 @user_bp.route('/create_prompt', methods=['POST'])
 @jwt_required()
 def create_prompt():
@@ -13,13 +16,13 @@ def create_prompt():
 
     # Extraire les données du JSON
     content = data.get('content')
-    price = data.get('price', 1000.0)  # Par défaut à 1000.0 si non fourni
 
     if not content:
         return jsonify({"error": "Content is required"}), 400
 
-    # Définir le statut par défaut à 'En attente'
+    # Définir le statut par défaut à 'En attente' et le prix par défaut à 1000
     status = 'En attente'
+    price = 1000.0
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -30,40 +33,40 @@ def create_prompt():
             (content, current_user_id, status, price)
         )
         conn.commit()
-        cur.close()
-        conn.close()
         return jsonify({"message": "Prompt created successfully"}), 201
     except Exception as e:
         conn.rollback()
+        return jsonify({"error": f"Failed to create prompt: {str(e)}"}), 500
+    finally:
         cur.close()
         conn.close()
-        return jsonify({"error": f"Failed to create prompt: {str(e)}"}), 500
+
+
 # Route pour voter pour un prompt (seulement pour les utilisateurs connectés)
 @user_bp.route('/vote_prompt', methods=['POST'])
 @jwt_required()
 def vote_prompt():
-    # Récupérer l'utilisateur actuel à partir du JWT
     current_user = get_jwt_identity()
-    # Vérifier que l'utilisateur a le rôle 'user' ou 'admin'
     if current_user['role'] not in ['user', 'admin']:
         return jsonify({'error': 'Access denied'}), 403
 
-    # Récupérer les données JSON envoyées dans la requête
     data = request.get_json()
     prompt_id = data.get('prompt_id')
     vote = data.get('vote')
 
-    # Obtenir une connexion à la base de données
     conn = get_db_connection()
     cur = conn.cursor()
 
     try:
-        # Insérer le vote dans la base de données
         cur.execute(
             "INSERT INTO votes (user_id, prompt_id, vote_value) VALUES (%s, %s, %s)",
             (current_user['id'], prompt_id, vote)
         )
         conn.commit()
+
+        count_votes_and_update_status(prompt_id, cur)
+        conn.commit()
+
         return jsonify({'message': 'Vote recorded successfully'}), 201
     except psycopg2.IntegrityError:
         conn.rollback()
@@ -112,6 +115,11 @@ def rate_prompt():
             (current_user['id'], prompt_id, rating)
         )
         conn.commit()
+
+        # Recalculer le prix après avoir noté le prompt
+        update_prompt_price(prompt_id, cur)
+        conn.commit()
+
         return jsonify({'message': 'Rating recorded successfully'}), 201
     except psycopg2.IntegrityError:
         conn.rollback()
@@ -119,13 +127,6 @@ def rate_prompt():
     finally:
         cur.close()
         conn.close()
-from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
-import psycopg2
-
-from app.db import get_db_connection
-
-user_bp = Blueprint('user', __name__)
 
 # Route pour demander la suppression d'un prompt (accessible aux utilisateurs authentifiés)
 @user_bp.route('/request_delete_prompt', methods=['PATCH'])
@@ -166,11 +167,7 @@ def request_delete_prompt():
         cur.close()
         conn.close()
 
-
-
-
-
-
+# Route pour modifier un prompt (accessible aux utilisateurs authentifiés)
 @user_bp.route('/modify_prompt', methods=['PATCH'])
 @jwt_required()
 def modify_prompt():
@@ -189,11 +186,7 @@ def modify_prompt():
     cur = conn.cursor()
 
     try:
-        # Vérifier que le prompt existe et appartient à l'utilisateur
-        cur.execute(
-            "SELECT id, content, author_id, status, price FROM prompts WHERE id = %s",
-            (prompt_id,)
-        )
+        cur.execute("SELECT id, content, author_id, status, price FROM prompts WHERE id = %s", (prompt_id,))
         prompt = cur.fetchone()
 
         if not prompt:
@@ -202,21 +195,13 @@ def modify_prompt():
         if prompt[2] != current_user_id:
             return jsonify({'error': 'You are not authorized to modify this prompt'}), 403
 
-        # Vérifier que le prompt peut être modifié (statut 'À revoir')
         if prompt[3] != 'À revoir':
             return jsonify({'error': 'Prompt cannot be modified at this time'}), 400
 
-        # Mettre à jour le contenu et/ou le prix du prompt
         if new_content:
-            cur.execute(
-                "UPDATE prompts SET content = %s WHERE id = %s",
-                (new_content, prompt_id)
-            )
+            cur.execute("UPDATE prompts SET content = %s, last_updated = CURRENT_TIMESTAMP WHERE id = %s", (new_content, prompt_id))
         if new_price is not None:
-            cur.execute(
-                "UPDATE prompts SET price = %s WHERE id = %s",
-                (new_price, prompt_id)
-            )
+            cur.execute("UPDATE prompts SET price = %s, last_updated = CURRENT_TIMESTAMP WHERE id = %s", (new_price, prompt_id))
 
         conn.commit()
 

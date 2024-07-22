@@ -5,6 +5,7 @@ from app.blueprints.admin import admin_bp
 from app.blueprints.user import user_bp
 from app.blueprints.guest import guest_bp
 from app.routes import main_bp
+from app.blueprints.prompt import prompt_bp
 
 from app.db import close_db_connection
 
@@ -24,6 +25,7 @@ def create_app():
     app.register_blueprint(user_bp, url_prefix='/user')
     app.register_blueprint(guest_bp, url_prefix='/guest')
     app.register_blueprint(main_bp, url_prefix='/')
+    app.register_blueprint(prompt_bp,url_prefix='/prompt')
 
     # Enregistre une fonction pour nettoyer les ressources à la fin de chaque requête
     app.teardown_appcontext(close_db_connection)

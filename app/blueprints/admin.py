@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
+from app.utils import update_prompt_price  
 
 from app.db import get_db_connection
 
@@ -129,21 +130,8 @@ def add_user_to_group():
         cur.close()
         conn.close()
 
-# Route pour afficher tous les prompts (accessible seulement aux administrateurs)
-@admin_bp.route('/prompts', methods=['GET'])
-@jwt_required()
-def admin_view_prompts():
-    current_user = get_jwt_identity()
-    if current_user['role'] != 'admin':
-        return jsonify({'error': 'Access forbidden'}), 403
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, content, price, status FROM prompts")
-    prompts = cur.fetchall()
-    cur.close()
-    conn.close()
-    return jsonify(prompts), 200
+
 @admin_bp.route('/update_prompt_status', methods=['PATCH'])
 @jwt_required()
 def update_prompt_status():
@@ -155,18 +143,25 @@ def update_prompt_status():
     prompt_id = data.get('prompt_id')
     new_status = data.get('status')
 
-    valid_statuses = [ 'Activé', 'À revoir']
+    valid_statuses = ['Activé', 'À revoir']
     if new_status not in valid_statuses:
         return jsonify({'error': 'Invalid status'}), 400
 
     conn = get_db_connection()
     cur = conn.cursor()
     try:
+        # Mettre à jour le statut du prompt
         cur.execute(
             "UPDATE prompts SET status = %s WHERE id = %s",
             (new_status, prompt_id)
         )
         conn.commit()
+
+        # Si le nouveau statut est 'Activé', recalculer le prix du prompt
+        if new_status == 'Activé':
+            update_prompt_price(prompt_id, cur)
+            conn.commit()
+
         return jsonify({'message': 'Prompt status updated successfully'}), 200
     except psycopg2.Error as e:
         conn.rollback()
@@ -175,7 +170,7 @@ def update_prompt_status():
         cur.close()
         conn.close()
 # Route pour supprimer un prompt (accessible seulement aux administrateurs)
-# Route pour supprimer un prompt (accessible seulement aux administrateurs)
+
 @admin_bp.route('/delete_prompt', methods=['DELETE'])
 @jwt_required()
 def delete_prompt():
